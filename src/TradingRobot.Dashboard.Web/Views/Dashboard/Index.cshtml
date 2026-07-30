@@ -1,0 +1,49 @@
+@model DashboardViewModel
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div id="app" data-default-symbol="@Model.DefaultSymbol">
+  <header class="topbar">
+    <div class="symbol-picker">
+      <select id="symbol-select"><option value="@Model.DefaultSymbol">@Model.DefaultSymbol</option></select>
+    </div>
+    <span class="exchange-label">Binance</span>
+
+    <div class="timeframes" id="timeframes">
+      @foreach (var tf in Model.Timeframes)
+      {
+        <button type="button" class="tf-btn" data-interval="@tf">@tf</button>
+      }
+    </div>
+
+    <button type="button" id="indicators-btn" class="indicators-btn" disabled title="Indicator overlays are planned for a later build pass — see Dashboard-Frontend-Requirements.md item 4.">
+      Indicators (coming soon)
+    </button>
+  </header>
+
+  <div class="chart-row">
+    <div class="tools-bar" id="tools-bar">
+      <button type="button" class="tool-btn active" data-tool="cursor" title="Cursor">↖</button>
+      <button type="button" class="tool-btn" data-tool="trendline" title="Trendline">╱</button>
+      <button type="button" class="tool-btn" data-tool="horizontal" title="Horizontal level">─</button>
+      <button type="button" class="tool-btn" data-tool="eraser" title="Clear drawings">⌫</button>
+    </div>
+
+    <div class="chart-container">
+      <div id="chart"></div>
+      <canvas id="draw-overlay"></canvas>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item legend-signal">● Signal — a running strategy fired a buy/sell</span>
+    <span class="legend-item legend-pattern">● Pattern — a recognizable price-action shape, not a trade call</span>
+  </div>
+</div>
+
+@section Scripts {
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/@@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+<script src="~/js/dashboard.js"></script>
+}

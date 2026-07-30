@@ -79,10 +79,19 @@ The **Live Execution Bot status panel** (positions/orders) is confirmed as part 
 - Automated trade execution from the chart UI.
 - Multi-exchange support — Binance only, consistent with the rest of the solution.
 
-## Open items to resolve during build
+## Build status
 
-- Exact mechanism for pushing live candle updates to the browser (polling interval vs SignalR vs raw WebSocket relay through Dashboard.Web).
-- Where drawing-tool annotations persist (browser localStorage vs a server-side store keyed by user/symbol).
-- Whether `StrategyTester.Api` and `LiveExecutionBot.Worker` migrate to Binance.Net too, to avoid maintaining two separate Binance integrations long-term.
-- `SignalGenerator.Worker`'s `SignalWorker` currently only fans a `Signal` out to `INotifier`s (Telegram/email) — the code has a `TODO` marking where it also needs to `XADD` each signal onto its per-symbol Redis Stream (see "Signal transport" above) so Dashboard.Web can pick it up. Not yet implemented.
-- Which candlestick patterns are in scope for v1 (a small curated set — e.g. doji, hammer, engulfing — vs. a larger textbook list) and whether pattern detection runs server-side (an API endpoint Dashboard.Web calls, most consistent with how backtest results are served today) or client-side in JS against the candle data already on the page.
+This v1 charting pass is now implemented, not just planned. What exists:
+
+- `TradingRobot.MarketData.BinanceNet` (new project) — `BinanceNetMarketDataProvider` implements `IMarketDataProvider` and a Dashboard-only `ISymbolCatalog` via the Binance.Net package. **Package version and some Binance.Net API call shapes are unverified** — written without NuGet access, so expect to fix method/property names against whatever version actually restores locally, same as happened with the original Aspire package versions.
+- `TradingRobot.PatternDetection` (new project) — curated v1 pattern set locked in: doji, hammer, shooting star, bullish engulfing, bearish engulfing. Shape-based only, no trend context.
+- `Dashboard.Web` converted from a minimal-API stub to ASP.NET Core MVC: `DashboardController` renders the chart view; `MarketDataApiController` exposes `/api/marketdata/{symbols,candles,patterns,signals}`; `CandleHub` (SignalR, mounted at `/hubs/candles`) pushes live closed candles per-connection via a client-driven `SubscribeToSymbol(symbol, interval)` call — locking the "polling vs SignalR" open item in favor of SignalR.
+- `SignalGenerator.Worker`'s `SignalWorker` now actually publishes each `Signal` to its per-symbol Redis Stream (`XADD signals:{symbol} data <json>`) — this was a dangling `TODO` before, now implemented, matching the wire format `GetSignals` reads. Still returns empty in practice until a real (non-placeholder) strategy is registered.
+- The Razor view/JS implement the full locked layout: dynamic symbol dropdown, timeframe buttons, left drawing-tools bar (cursor/trendline/horizontal-level/eraser, drawn on a canvas overlaid on the chart), the "Indicators" control present but disabled/labeled "coming soon" per the deferred scope, and an explicit "Signal" vs "Pattern" legend/visual distinction (native chart markers for signals, a translucent canvas band for patterns) — not just color-coded.
+
+## Remaining open items
+
+- **Drawing-tool persistence**: trendlines/horizontal levels currently live only in an in-memory JS array — refresh the page and they're gone. Needs a decision (browser `localStorage` to start, per the original open item) and implementation.
+- **Binance.Net scope**: only `Dashboard.Web` uses it today. Whether `StrategyTester.Api` and `LiveExecutionBot.Worker` migrate too, to avoid maintaining two separate Binance integrations long-term, is still open.
+- **Verify the Binance.Net integration against the real package** once restored locally — this is the most likely source of build errors in this pass, same pattern as the earlier Aspire package version fixes.
+- Indicator overlays (item 4) remain deferred as designed — the UI slot exists, the compute/render logic doesn't yet.

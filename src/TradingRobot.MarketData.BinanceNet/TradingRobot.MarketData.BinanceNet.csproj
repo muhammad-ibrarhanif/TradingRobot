@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Version is a placeholder — pin to whatever `dotnet add package Binance.Net`
+         resolves to locally; NuGet isn't reachable from the sandbox this was
+         written in, so this number is unverified. -->
+    <PackageReference Include="Binance.Net" Version="11.6.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TradingRobot.Domain\TradingRobot.Domain.csproj" />
+  </ItemGroup>
+</Project>

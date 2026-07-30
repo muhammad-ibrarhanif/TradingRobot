@@ -1,16 +1,27 @@
+using TradingRobot.Dashboard.Web.Hubs;
+using TradingRobot.MarketData.BinanceNet;
+using TradingRobot.PatternDetection;
+
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
-builder.AddRedisClient(connectionName: "redis"); // live-execution-bot status/positions read from here
+builder.AddRedisClient(connectionName: "redis"); // signal stream reads + (later) live-execution-bot status
+
+builder.Services.AddControllersWithViews();
+builder.Services.AddSignalR();
+
+// v1 scope: charting/market-structure only (symbol dropdown, timeframe switch,
+// candles, drawing tools, pattern highlighting, signal markers). Live execution
+// status is the confirmed next addition, not part of this pass — see
+// Dashboard-Frontend-Requirements.md "Sequencing".
+builder.Services.AddBinanceNetMarketData();
+builder.Services.AddSingleton<PatternDetector>();
 
 var app = builder.Build();
 app.MapDefaultEndpoints();
-app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseRouting();
 
-// Placeholder: proxy/aggregate calls to strategy-tester + live-execution-bot go here.
-// This is the seed of the eventual full TradingView-clone frontend — multi-timeframe
-// charts, drawing tools, custom indicators, and the live execution status view
-// all land in this project as they're built.
-app.MapGet("/api/status", () => Results.Ok(new { status = "Dashboard.Web stub — wire up live-execution-bot status here." }));
+app.MapControllerRoute(name: "default", pattern: "{controller=Dashboard}/{action=Index}/{id?}");
+app.MapHub<CandleHub>("/hubs/candles");
 
 app.Run();

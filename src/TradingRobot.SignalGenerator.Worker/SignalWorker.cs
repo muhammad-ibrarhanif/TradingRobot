@@ -1,3 +1,5 @@
+using System.Text.Json;
+using StackExchange.Redis;
 using TradingRobot.Domain.Abstractions;
 using TradingRobot.Domain.Models;
 using TradingRobot.MarketData.Binance;
@@ -14,6 +16,7 @@ public sealed class SignalWorker(
     BinanceWebSocketClient marketData,
     IEnumerable<INotifier> notifiers,
     IEnumerable<IStrategy> strategies,
+    IConnectionMultiplexer redis,
     ILogger<SignalWorker> logger,
     IConfiguration config) : BackgroundService
 {
@@ -22,6 +25,7 @@ public sealed class SignalWorker(
         var symbol = config["Watch:Symbol"] ?? "BTCUSDT";
         var interval = config["Watch:Interval"] ?? "5m";
         var history = new List<Candle>();
+        var db = redis.GetDatabase();
 
         await foreach (var candle in marketData.StreamKlinesAsync(symbol, interval, stoppingToken))
         {
@@ -35,9 +39,12 @@ public sealed class SignalWorker(
                 logger.LogInformation("[{Strategy}] Signal: {Symbol} {Side} — {Reason}",
                     signal.StrategyName, signal.Symbol, signal.Side, signal.Reason);
 
-                // TODO: also publish `signal` to a Redis Stream here (see
-                // Dashboard-Frontend-Requirements.md) so Dashboard.Web can render
-                // buy/sell markers without re-running strategies itself.
+                // Wire format locked in Dashboard-Frontend-Requirements.md ("Signal
+                // transport"): one Redis Stream per symbol, single "data" field
+                // holding the JSON-serialized Signal. Dashboard.Web's
+                // MarketDataApiController.GetSignals reads this same stream/field.
+                await db.StreamAddAsync($"signals:{signal.Symbol}", "data", JsonSerializer.Serialize(signal));
+
                 foreach (var notifier in notifiers)
                     await notifier.NotifyAsync(signal, stoppingToken);
             }
