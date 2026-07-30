@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="13.4.6" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TradingRobot.ServiceDefaults\TradingRobot.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\TradingRobot.Domain\TradingRobot.Domain.csproj" />
+    <ProjectReference Include="..\TradingRobot.MarketData.Binance\TradingRobot.MarketData.Binance.csproj" />
+  </ItemGroup>
+</Project>
