@@ -12,5 +12,6 @@
     <ProjectReference Include="..\TradingRobot.Domain\TradingRobot.Domain.csproj" />
     <ProjectReference Include="..\TradingRobot.MarketData.BinanceNet\TradingRobot.MarketData.BinanceNet.csproj" />
     <ProjectReference Include="..\TradingRobot.PatternDetection\TradingRobot.PatternDetection.csproj" />
+    <ProjectReference Include="..\TradingRobot.Strategies\TradingRobot.Strategies.csproj" />
   </ItemGroup>
 </Project>

@@ -7,6 +7,12 @@ const appEl = document.getElementById('app');
 let currentSymbol = appEl.dataset.defaultSymbol;
 let currentInterval = '1h';
 
+// null = live mode (last N candles up to now, live SignalR updates, signals from
+// the Redis Stream). {from, to} = historical mode (a fixed past range, no live
+// subscription, signals computed on demand for that range) — see
+// Dashboard-Frontend-Requirements.md "date range picker".
+let historicalRange = null;
+
 const chart = LightweightCharts.createChart(document.getElementById('chart'), {
   layout: { background: { color: '#0d1117' }, textColor: '#c9d1d9' },
   grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
@@ -69,8 +75,16 @@ document.querySelector('.tf-btn')?.classList.add('active');
 
 // --- candles / patterns / signals -------------------------------------------
 
+// Appends &from=...&to=... when in historical mode, &limit=300 when in live mode
+// — mirrors the two branches MarketDataApiController.ResolveRange handles server-side.
+function rangeQuery() {
+  return historicalRange
+    ? `&from=${historicalRange.from}&to=${historicalRange.to}`
+    : `&limit=300`;
+}
+
 async function loadCandles() {
-  const res = await fetch(`/api/marketdata/candles?symbol=${currentSymbol}&interval=${currentInterval}&limit=300`);
+  const res = await fetch(`/api/marketdata/candles?symbol=${currentSymbol}&interval=${currentInterval}${rangeQuery()}`);
   const candles = await res.json();
   candleSeries.setData(candles.map(toChartCandle));
 }
@@ -81,13 +95,19 @@ function toChartCandle(c) {
 
 let patterns = [];
 async function loadPatterns() {
-  const res = await fetch(`/api/marketdata/patterns?symbol=${currentSymbol}&interval=${currentInterval}&limit=300`);
+  const res = await fetch(`/api/marketdata/patterns?symbol=${currentSymbol}&interval=${currentInterval}${rangeQuery()}`);
   patterns = await res.json();
   redrawOverlay();
 }
 
 async function loadSignals() {
-  const res = await fetch(`/api/marketdata/signals?symbol=${currentSymbol}&count=100`);
+  // Historical mode needs `interval` too (so the server can fetch the same
+  // candle range to run strategies against); live mode ignores it and just
+  // reads the last `count` entries from the Redis Stream.
+  const query = historicalRange
+    ? `symbol=${currentSymbol}&interval=${currentInterval}&from=${historicalRange.from}&to=${historicalRange.to}`
+    : `symbol=${currentSymbol}&count=100`;
+  const res = await fetch(`/api/marketdata/signals?${query}`);
   const signals = await res.json();
   // One color per strategy so multiple concurrently-running strategies' signals
   // stay visually distinguishable, same convention as the Strategy Tester chart.
@@ -110,9 +130,33 @@ async function refreshAll() {
   await loadCandles();
   await loadPatterns();
   await loadSignals();
-  await subscribeLive();
+  if (historicalRange) {
+    await unsubscribeLive();
+  } else {
+    await subscribeLive();
+  }
   resizeOverlay();
 }
+
+// --- date range picker (live vs. historical mode) ---------------------------
+
+document.getElementById('load-range-btn').addEventListener('click', () => {
+  const from = document.getElementById('from-date').value;
+  const to = document.getElementById('to-date').value;
+  if (!from || !to) return;
+
+  historicalRange = { from, to };
+  document.getElementById('live-btn').classList.remove('active');
+  refreshAll();
+});
+
+document.getElementById('live-btn').addEventListener('click', () => {
+  historicalRange = null;
+  document.getElementById('from-date').value = '';
+  document.getElementById('to-date').value = '';
+  document.getElementById('live-btn').classList.add('active');
+  refreshAll();
+});
 
 // --- pattern highlighting on the canvas overlay -----------------------------
 // Patterns are drawn as a background band spanning every candle involved (per
@@ -237,6 +281,11 @@ async function subscribeLive() {
     hubStarted = true;
   }
   await connection.invoke('SubscribeToSymbol', currentSymbol, currentInterval);
+}
+
+async function unsubscribeLive() {
+  if (!hubStarted) return; // nothing to unsubscribe from yet
+  await connection.invoke('Unsubscribe');
 }
 
 // --- boot ---------------------------------------------------------------

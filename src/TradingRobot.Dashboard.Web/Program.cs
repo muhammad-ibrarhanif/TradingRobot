@@ -1,4 +1,5 @@
 using TradingRobot.Dashboard.Web.Hubs;
+using TradingRobot.Domain.Abstractions;
 using TradingRobot.MarketData.BinanceNet;
 using TradingRobot.PatternDetection;
 
@@ -15,6 +16,12 @@ builder.Services.AddSignalR();
 // Dashboard-Frontend-Requirements.md "Sequencing".
 builder.Services.AddBinanceNetMarketData();
 builder.Services.AddSingleton<PatternDetector>();
+
+// Same IStrategy registrations as SignalGenerator.Worker (see that Program.cs),
+// used here only to compute signal markers on demand for a chosen historical date
+// range — SignalGenerator.Worker's live Redis Stream has nothing for past dates.
+// This never places orders or sends alerts; it's read-only historical evaluation.
+builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
 
 var app = builder.Build();
 app.MapDefaultEndpoints();

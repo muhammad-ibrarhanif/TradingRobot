@@ -12,7 +12,7 @@ builder.AddRedisClient(connectionName: "redis"); // caches historical candles be
 // Every AddSingleton<IStrategy>(...) here is one more strategy the /api/backtest
 // endpoint runs against the same historical data and returns a result for —
 // this is how the tester runs and compares many strategies simultaneously.
-builder.Services.AddSingleton<IStrategy>(new TradingRobot.StrategyTester.Api.Strategies.SmaCrossStrategy());
+builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
 
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 

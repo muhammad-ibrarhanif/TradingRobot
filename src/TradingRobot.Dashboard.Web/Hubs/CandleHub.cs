@@ -26,6 +26,15 @@ public sealed class CandleHub(IMarketDataProvider marketData, ILogger<CandleHub>
         return Task.CompletedTask;
     }
 
+    // Called when the dashboard switches to historical mode (a fixed past date
+    // range) — no live subscription makes sense there, but the SignalR connection
+    // itself stays open so switching back to "Live" is instant (no reconnect).
+    public Task Unsubscribe()
+    {
+        CancelExistingStream(Context.ConnectionId);
+        return Task.CompletedTask;
+    }
+
     private async Task StreamToCallerAsync(ISingleClientProxy caller, string symbol, string interval, CancellationToken ct)
     {
         try

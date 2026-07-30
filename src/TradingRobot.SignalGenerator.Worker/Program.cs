@@ -23,8 +23,10 @@ builder.Services.AddSingleton<INotifier, EmailNotifier>();
 // concurrently against the same candle stream — SignalWorker resolves all of them
 // via IEnumerable<IStrategy> and evaluates each independently, so adding a new
 // strategy is just adding another line here, not touching the worker.
-// No real strategy is defined yet — this is a single inert placeholder until one is.
-builder.Services.AddSingleton<IStrategy>(new TradingRobot.SignalGenerator.Worker.Strategies.PlaceholderStrategy());
+// Real strategy wired in (not the inert placeholder) — chosen specifically to
+// validate the pipeline end to end, not because SmaCross has been vetted as a
+// good strategy. Swap/add to this list once real strategy validation happens.
+builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
 
 builder.Services.AddHostedService<SignalWorker>();
 
