@@ -20,28 +20,67 @@ public sealed class BinanceNetMarketDataProvider(
         string symbol, string interval, DateTimeOffset from, DateTimeOffset to,
         CancellationToken ct = default)
     {
-        var result = await restClient.SpotApi.ExchangeData.GetKlinesAsync(
-            symbol,
-            IntervalMapping.ToKlineInterval(interval),
-            from.UtcDateTime,
-            to.UtcDateTime,
-            limit: 1000,
-            ct: ct);
+        // Binance hard-caps every klines response at 1000 candles regardless of
+        // the requested time range — a bare single call with limit:1000 silently
+        // truncated any range longer than that (a full day of 1m candles is 1440),
+        // which is what capped historical replay at "168/1000" instead of the
+        // full day. Page through in 1000-candle chunks, advancing past the last
+        // candle returned each time, until the range is exhausted.
+        var all = new List<Candle>();
+        var cursor = from;
+        var step = IntervalSpan(interval);
 
-        if (!result.Success)
-            throw new InvalidOperationException($"Binance.Net GetKlinesAsync failed: {result.Error}");
+        while (cursor < to)
+        {
+            var result = await restClient.SpotApi.ExchangeData.GetKlinesAsync(
+                symbol,
+                IntervalMapping.ToKlineInterval(interval),
+                cursor.UtcDateTime,
+                to.UtcDateTime,
+                limit: 1000,
+                ct: ct);
 
-        return result.Data.Select(k => new Candle(
-            Symbol: symbol,
-            Interval: interval,
-            OpenTime: new DateTimeOffset(k.OpenTime, TimeSpan.Zero),
-            Open: k.OpenPrice,
-            High: k.HighPrice,
-            Low: k.LowPrice,
-            Close: k.ClosePrice,
-            Volume: k.Volume
-        )).ToList();
+            if (!result.Success)
+                throw new InvalidOperationException($"Binance.Net GetKlinesAsync failed: {result.Error}");
+
+            var page = result.Data.ToList();
+            if (page.Count == 0) break;
+
+            all.AddRange(page.Select(k => new Candle(
+                Symbol: symbol,
+                Interval: interval,
+                OpenTime: new DateTimeOffset(k.OpenTime, TimeSpan.Zero),
+                Open: k.OpenPrice,
+                High: k.HighPrice,
+                Low: k.LowPrice,
+                Close: k.ClosePrice,
+                Volume: k.Volume
+            )));
+
+            cursor = new DateTimeOffset(page[^1].OpenTime, TimeSpan.Zero) + step;
+
+            if (page.Count < 1000) break; // short page = nothing left in range
+        }
+
+        return all;
     }
+
+    // Local interval-string-to-TimeSpan mapping, same small duplicated helper
+    // pattern used elsewhere (e.g. SignalWorker.IntervalSpan) rather than a
+    // shared dependency for something this small.
+    private static TimeSpan IntervalSpan(string interval) => interval switch
+    {
+        "1m" => TimeSpan.FromMinutes(1),
+        "3m" => TimeSpan.FromMinutes(3),
+        "5m" => TimeSpan.FromMinutes(5),
+        "15m" => TimeSpan.FromMinutes(15),
+        "30m" => TimeSpan.FromMinutes(30),
+        "1h" => TimeSpan.FromHours(1),
+        "4h" => TimeSpan.FromHours(4),
+        "1d" => TimeSpan.FromDays(1),
+        "1w" => TimeSpan.FromDays(7),
+        _ => throw new ArgumentOutOfRangeException(nameof(interval), interval, "Unsupported interval.")
+    };
 
     public async IAsyncEnumerable<Candle> StreamCandlesAsync(
         string symbol, string interval,

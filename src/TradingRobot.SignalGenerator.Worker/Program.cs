@@ -8,6 +8,7 @@ builder.AddServiceDefaults();
 
 builder.Services.Configure<BinanceOptions>(builder.Configuration.GetSection("Binance"));
 builder.Services.AddSingleton<BinanceWebSocketClient>();
+builder.Services.AddHttpClient<BinanceRestClient>(); // used once at startup to preload history — see SignalWorker
 builder.AddRedisClient(connectionName: "redis"); // dedup so the same signal isn't alerted twice
 
 // AddHttpClient<T> registers TelegramNotifier as a "typed client" — it can only be
@@ -23,10 +24,18 @@ builder.Services.AddSingleton<INotifier, EmailNotifier>();
 // concurrently against the same candle stream — SignalWorker resolves all of them
 // via IEnumerable<IStrategy> and evaluates each independently, so adding a new
 // strategy is just adding another line here, not touching the worker.
-// Real strategy wired in (not the inert placeholder) — chosen specifically to
-// validate the pipeline end to end, not because SmaCross has been vetted as a
-// good strategy. Swap/add to this list once real strategy validation happens.
+//
+// Three independent signal sources per Dashboard-Frontend-Requirements.md "Signal
+// generation — patterns vs indicators vs combined": price action alone
+// (PatternBasedStrategy), an indicator alone (SmaCrossStrategy), and both agreeing
+// together (ConfirmedStrategy). All three run at once; the dashboard already
+// colors/labels signals per StrategyName so you can tell which source produced
+// which marker. Chart highlighting for patterns is a separate, always-on layer
+// (MarketDataApiController.GetPatterns) — it doesn't depend on which of these are
+// registered.
+builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.PatternBasedStrategy());
 builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
+builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.ConfirmedStrategy());
 
 builder.Services.AddHostedService<SignalWorker>();
 

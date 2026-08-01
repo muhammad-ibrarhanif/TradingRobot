@@ -12,20 +12,37 @@ public sealed class PatternDetector
     public IReadOnlyList<PatternMatch> Detect(IReadOnlyList<Candle> candles)
     {
         var matches = new List<PatternMatch>();
-
         for (var i = 0; i < candles.Count; i++)
-        {
-            if (TryDoji(candles[i], out var doji)) matches.Add(new PatternMatch("Doji", i, i, doji));
-            if (TryHammer(candles[i], out var hammer)) matches.Add(new PatternMatch("Hammer", i, i, hammer));
-            if (TryShootingStar(candles[i], out var star)) matches.Add(new PatternMatch("Shooting star", i, i, star));
+            matches.AddRange(DetectAt(candles, i));
 
-            if (i == 0) continue;
+        return matches;
+    }
 
-            if (TryBullishEngulfing(candles[i - 1], candles[i], out var bullEngulf))
-                matches.Add(new PatternMatch("Bullish engulfing", i - 1, i, bullEngulf));
-            if (TryBearishEngulfing(candles[i - 1], candles[i], out var bearEngulf))
-                matches.Add(new PatternMatch("Bearish engulfing", i - 1, i, bearEngulf));
-        }
+    // Checks only the most recent candle (plus its immediate predecessor, for the
+    // two-candle engulfing patterns) instead of rescanning the whole list. Used by
+    // anything evaluating one new candle at a time — e.g. a strategy's OnCandle —
+    // so pattern-driven signal generation stays O(1) per candle instead of O(n)
+    // (which would make replaying a long historical range quadratic overall).
+    public IReadOnlyList<PatternMatch> DetectLatest(IReadOnlyList<Candle> candles)
+    {
+        if (candles.Count == 0) return Array.Empty<PatternMatch>();
+        return DetectAt(candles, candles.Count - 1);
+    }
+
+    private static IReadOnlyList<PatternMatch> DetectAt(IReadOnlyList<Candle> candles, int i)
+    {
+        var matches = new List<PatternMatch>();
+
+        if (TryDoji(candles[i], out var doji)) matches.Add(new PatternMatch("Doji", i, i, doji));
+        if (TryHammer(candles[i], out var hammer)) matches.Add(new PatternMatch("Hammer", i, i, hammer));
+        if (TryShootingStar(candles[i], out var star)) matches.Add(new PatternMatch("Shooting star", i, i, star));
+
+        if (i == 0) return matches;
+
+        if (TryBullishEngulfing(candles[i - 1], candles[i], out var bullEngulf))
+            matches.Add(new PatternMatch("Bullish engulfing", i - 1, i, bullEngulf));
+        if (TryBearishEngulfing(candles[i - 1], candles[i], out var bearEngulf))
+            matches.Add(new PatternMatch("Bearish engulfing", i - 1, i, bearEngulf));
 
         return matches;
     }

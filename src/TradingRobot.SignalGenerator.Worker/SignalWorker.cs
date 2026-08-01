@@ -14,6 +14,7 @@ namespace TradingRobot.SignalGenerator.Worker;
 // changing the DI registrations in Program.cs; this worker doesn't change.
 public sealed class SignalWorker(
     BinanceWebSocketClient marketData,
+    BinanceRestClient historicalMarketData,
     IEnumerable<INotifier> notifiers,
     IEnumerable<IStrategy> strategies,
     IConnectionMultiplexer redis,
@@ -24,8 +25,18 @@ public sealed class SignalWorker(
     {
         var symbol = config["Watch:Symbol"] ?? "BTCUSDT";
         var interval = config["Watch:Interval"] ?? "5m";
-        var history = new List<Candle>();
         var db = redis.GetDatabase();
+
+        // Preload recent history via REST before starting the live stream.
+        // Without this, `history` starts empty and SmaCrossStrategy (needs
+        // slowPeriod+1 = 31 closed candles) couldn't evaluate a single crossover
+        // until 31 live candles had actually closed — ~2.5 hours of continuous
+        // runtime at the default 5m interval, after every restart. 60 candles
+        // gives every registered strategy a reasonable buffer to start from.
+        var seedFrom = DateTimeOffset.UtcNow - (IntervalSpan(interval) * 60);
+        var history = (await historicalMarketData.GetKlinesAsync(symbol, interval, seedFrom, DateTimeOffset.UtcNow, stoppingToken))
+            .ToList();
+        logger.LogInformation("Preloaded {Count} historical candles for {Symbol}/{Interval} before going live", history.Count, symbol, interval);
 
         await foreach (var candle in marketData.StreamKlinesAsync(symbol, interval, stoppingToken))
         {
@@ -50,4 +61,22 @@ public sealed class SignalWorker(
             }
         }
     }
+
+    // Same interval-string-to-duration mapping used by Dashboard.Web's
+    // IntervalDuration — duplicated locally rather than shared across services
+    // for such a small helper; worth consolidating into TradingRobot.Domain if a
+    // third place ends up needing it.
+    private static TimeSpan IntervalSpan(string interval) => interval switch
+    {
+        "1m" => TimeSpan.FromMinutes(1),
+        "3m" => TimeSpan.FromMinutes(3),
+        "5m" => TimeSpan.FromMinutes(5),
+        "15m" => TimeSpan.FromMinutes(15),
+        "30m" => TimeSpan.FromMinutes(30),
+        "1h" => TimeSpan.FromHours(1),
+        "4h" => TimeSpan.FromHours(4),
+        "1d" => TimeSpan.FromDays(1),
+        "1w" => TimeSpan.FromDays(7),
+        _ => throw new ArgumentOutOfRangeException(nameof(interval), interval, "Unsupported interval.")
+    };
 }

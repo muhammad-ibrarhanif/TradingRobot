@@ -17,11 +17,14 @@ builder.Services.AddSignalR();
 builder.Services.AddBinanceNetMarketData();
 builder.Services.AddSingleton<PatternDetector>();
 
-// Same IStrategy registrations as SignalGenerator.Worker (see that Program.cs),
-// used here only to compute signal markers on demand for a chosen historical date
-// range — SignalGenerator.Worker's live Redis Stream has nothing for past dates.
-// This never places orders or sends alerts; it's read-only historical evaluation.
+// Same IStrategy registrations as SignalGenerator.Worker (see that Program.cs) —
+// price action alone, an indicator alone, and both agreeing together — used here
+// only to compute signal markers on demand for a chosen historical date range;
+// SignalGenerator.Worker's live Redis Stream has nothing for past dates. This
+// never places orders or sends alerts; it's read-only historical evaluation.
+builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.PatternBasedStrategy());
 builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
+builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.ConfirmedStrategy());
 
 var app = builder.Build();
 app.MapDefaultEndpoints();

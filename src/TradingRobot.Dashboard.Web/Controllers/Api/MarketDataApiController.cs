@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using StackExchange.Redis;
@@ -34,10 +35,10 @@ public sealed class MarketDataApiController(
     [HttpGet("candles")]
     public async Task<IActionResult> GetCandles(
         [FromQuery] string symbol, [FromQuery] string interval, [FromQuery] int limit,
-        [FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to,
+        [FromQuery] string? from, [FromQuery] string? to,
         CancellationToken ct)
     {
-        var (rangeFrom, rangeTo) = ResolveRange(interval, limit, from, to);
+        var (rangeFrom, rangeTo) = ResolveRange(interval, limit, ParseUtcDate(from), ParseUtcDate(to));
         var candles = await marketData.GetHistoricalCandlesAsync(symbol, interval, rangeFrom, rangeTo, ct);
         return Ok(candles);
     }
@@ -50,10 +51,10 @@ public sealed class MarketDataApiController(
     [HttpGet("patterns")]
     public async Task<IActionResult> GetPatterns(
         [FromQuery] string symbol, [FromQuery] string interval, [FromQuery] int limit,
-        [FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to,
+        [FromQuery] string? from, [FromQuery] string? to,
         CancellationToken ct)
     {
-        var (rangeFrom, rangeTo) = ResolveRange(interval, limit, from, to);
+        var (rangeFrom, rangeTo) = ResolveRange(interval, limit, ParseUtcDate(from), ParseUtcDate(to));
         var candles = await marketData.GetHistoricalCandlesAsync(symbol, interval, rangeFrom, rangeTo, ct);
         var matches = patternDetector.Detect(candles);
 
@@ -85,12 +86,13 @@ public sealed class MarketDataApiController(
     [HttpGet("signals")]
     public async Task<IActionResult> GetSignals(
         [FromQuery] string symbol, [FromQuery] int count,
-        [FromQuery] string? interval, [FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to,
+        [FromQuery] string? interval, [FromQuery] string? from, [FromQuery] string? to,
         CancellationToken ct)
     {
-        if (from is not null && to is not null && !string.IsNullOrEmpty(interval))
+        var (parsedFrom, parsedTo) = (ParseUtcDate(from), ParseUtcDate(to));
+        if (parsedFrom is not null && parsedTo is not null && !string.IsNullOrEmpty(interval))
         {
-            var candles = await marketData.GetHistoricalCandlesAsync(symbol, interval, from.Value, to.Value, ct);
+            var candles = await marketData.GetHistoricalCandlesAsync(symbol, interval, parsedFrom.Value, InclusiveEndOfDay(parsedTo.Value), ct);
             var historical = HistoricalSignalRunner.Run(strategies, candles);
             return Ok(historical);
         }
@@ -121,11 +123,36 @@ public sealed class MarketDataApiController(
         string interval, int limit, DateTimeOffset? from, DateTimeOffset? to)
     {
         if (from is not null && to is not null)
-            return (from.Value, to.Value);
+            return (from.Value, InclusiveEndOfDay(to.Value));
 
         if (limit <= 0) limit = 300;
         var resolvedTo = DateTimeOffset.UtcNow;
         var resolvedFrom = resolvedTo - (IntervalDuration.ToTimeSpan(interval) * limit);
         return (resolvedFrom, resolvedTo);
+    }
+
+    // The date-range picker sends plain `YYYY-MM-DD` (via <input type="date">),
+    // which parses to midnight at the *start* of that day. Taken literally as an
+    // upper bound, "01-07-2026 to 01-07-2026" is a zero-width range — the API can
+    // only return whatever single candle sits at that exact instant, which is
+    // exactly the "only 1 candle" bug reported after adding the replay feature.
+    // A date-only `to` should mean "through the end of that calendar day," so we
+    // push it to the start of the next day (exclusive upper bound) before querying.
+    private static DateTimeOffset InclusiveEndOfDay(DateTimeOffset to) => to.AddDays(1);
+
+    // `from`/`to` used to be bound as `DateTimeOffset?` directly, which meant
+    // ASP.NET Core parsed a bare "2026-07-01" using the *server's local offset*
+    // (DateTimeStyles.None with no explicit offset assumes local time). That
+    // silently shifted which calendar day "01-07-2026" actually meant by however
+    // many hours the server is offset from UTC — e.g. on a UTC+1 server, "day 1"
+    // started at 23:00 UTC on the *previous* day and ran only partway into day 1,
+    // not midnight-to-midnight UTC as the picker implies. Binance's own candle
+    // timestamps are UTC, so parsing explicitly as UTC keeps the two consistent
+    // regardless of what timezone Dashboard.Web happens to be hosted in.
+    private static DateTimeOffset? ParseUtcDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var dt = DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        return new DateTimeOffset(dt, TimeSpan.Zero);
     }
 }

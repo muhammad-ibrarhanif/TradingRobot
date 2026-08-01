@@ -71,72 +71,182 @@ document.getElementById('timeframes').addEventListener('click', e => {
   currentInterval = btn.dataset.interval;
   refreshAll();
 });
-document.querySelector('.tf-btn')?.classList.add('active');
+// Highlight whichever button actually matches currentInterval (default '1h') —
+// not just the first button in the list, which would show "1m" active while
+// 1h candles are what's actually loaded.
+document.querySelector(`.tf-btn[data-interval="${currentInterval}"]`)?.classList.add('active');
 
 // --- candles / patterns / signals -------------------------------------------
-
-// Appends &from=...&to=... when in historical mode, &limit=300 when in live mode
-// — mirrors the two branches MarketDataApiController.ResolveRange handles server-side.
-function rangeQuery() {
-  return historicalRange
-    ? `&from=${historicalRange.from}&to=${historicalRange.to}`
-    : `&limit=300`;
-}
-
-async function loadCandles() {
-  const res = await fetch(`/api/marketdata/candles?symbol=${currentSymbol}&interval=${currentInterval}${rangeQuery()}`);
-  const candles = await res.json();
-  candleSeries.setData(candles.map(toChartCandle));
-}
 
 function toChartCandle(c) {
   return { time: Math.floor(new Date(c.openTime).getTime() / 1000), open: c.open, high: c.high, low: c.low, close: c.close };
 }
 
-let patterns = [];
-async function loadPatterns() {
-  const res = await fetch(`/api/marketdata/patterns?symbol=${currentSymbol}&interval=${currentInterval}${rangeQuery()}`);
-  patterns = await res.json();
-  redrawOverlay();
-}
+let patterns = []; // currently-visible patterns (all of them in live mode; only the ones "replayed so far" in historical mode)
 
-async function loadSignals() {
-  // Historical mode needs `interval` too (so the server can fetch the same
-  // candle range to run strategies against); live mode ignores it and just
-  // reads the last `count` entries from the Redis Stream.
-  const query = historicalRange
-    ? `symbol=${currentSymbol}&interval=${currentInterval}&from=${historicalRange.from}&to=${historicalRange.to}`
-    : `symbol=${currentSymbol}&count=100`;
-  const res = await fetch(`/api/marketdata/signals?${query}`);
-  const signals = await res.json();
-  // One color per strategy so multiple concurrently-running strategies' signals
-  // stay visually distinguishable, same convention as the Strategy Tester chart.
+// Builds the same marker shape both live mode and replay use — one color per
+// strategy, strategy-name prefix only when more than one is actually present
+// (see Dashboard-Frontend-Requirements.md fix notes).
+function buildSignalMarkers(signals) {
   const colors = ['#3fb950', '#f85149', '#58a6ff', '#d29922', '#bc8cff'];
   const byStrategy = new Map();
-  candleSeries.setMarkers(signals.map(s => {
+  for (const s of signals) {
     if (!byStrategy.has(s.strategyName)) byStrategy.set(s.strategyName, byStrategy.size);
+  }
+  const multiStrategy = byStrategy.size > 1;
+
+  return signals.map(s => {
     const color = colors[byStrategy.get(s.strategyName) % colors.length];
+    const sideText = s.side === 0 ? 'BUY' : 'SELL';
     return {
       time: Math.floor(new Date(s.generatedAt).getTime() / 1000),
       position: s.side === 0 ? 'belowBar' : 'aboveBar',
       color,
       shape: s.side === 0 ? 'arrowUp' : 'arrowDown',
-      text: `${s.strategyName}: ${s.side === 0 ? 'BUY' : 'SELL'}`,
+      text: multiStrategy ? `${s.strategyName}: ${sideText}` : sideText,
     };
-  }).sort((a, b) => a.time - b.time));
+  }).sort((a, b) => a.time - b.time);
 }
 
+// --- live mode: one fetch, everything shown immediately ---------------------
+
+async function loadLiveCandles() {
+  const res = await fetch(`/api/marketdata/candles?symbol=${currentSymbol}&interval=${currentInterval}&limit=300`);
+  candleSeries.setData((await res.json()).map(toChartCandle));
+}
+
+async function loadLivePatterns() {
+  const res = await fetch(`/api/marketdata/patterns?symbol=${currentSymbol}&interval=${currentInterval}&limit=300`);
+  patterns = await res.json();
+  redrawOverlay();
+}
+
+async function loadLiveSignals() {
+  const res = await fetch(`/api/marketdata/signals?symbol=${currentSymbol}&count=100`);
+  candleSeries.setMarkers(buildSignalMarkers(await res.json()));
+}
+
+// --- historical mode: fetch the whole range once, then play it back candle
+// by candle instead of dumping everything on the chart at once. Patterns and
+// signals are only revealed once playback actually reaches the candle(s) that
+// produced them — so watching a past range unfold looks the same as watching
+// it live would have, rather than seeing every signal for the week at once.
+
+let replayCandles = [];
+let replayPatterns = [];
+let replaySignals = [];
+let replayIndex = 0;
+let replayTimer = null;
+let replaySpeedMs = 150; // ms per candle — see #replay-speed
+
+async function loadHistoricalReplayData() {
+  const q = `symbol=${currentSymbol}&interval=${currentInterval}&from=${historicalRange.from}&to=${historicalRange.to}`;
+  const [candlesRes, patternsRes, signalsRes] = await Promise.all([
+    fetch(`/api/marketdata/candles?${q}`),
+    fetch(`/api/marketdata/patterns?${q}`),
+    fetch(`/api/marketdata/signals?${q}`),
+  ]);
+  replayCandles = await candlesRes.json();
+  replayPatterns = await patternsRes.json();
+  replaySignals = await signalsRes.json();
+  replayIndex = 0;
+
+  candleSeries.setData([]);
+  candleSeries.setMarkers([]);
+  patterns = [];
+  redrawOverlay();
+}
+
+function stepReplay() {
+  if (replayIndex >= replayCandles.length) {
+    pauseReplay();
+    return;
+  }
+
+  const candle = replayCandles[replayIndex];
+  candleSeries.update(toChartCandle(candle));
+  const cutoff = Math.floor(new Date(candle.openTime).getTime() / 1000);
+
+  patterns = replayPatterns.filter(p => Math.floor(new Date(p.endTime).getTime() / 1000) <= cutoff);
+  const revealedSignals = replaySignals.filter(s => Math.floor(new Date(s.generatedAt).getTime() / 1000) <= cutoff);
+  candleSeries.setMarkers(buildSignalMarkers(revealedSignals));
+  redrawOverlay();
+
+  replayIndex++;
+  updateReplayProgress();
+}
+
+function startReplay() {
+  clearInterval(replayTimer);
+  replayTimer = setInterval(stepReplay, replaySpeedMs);
+  setReplayControlsState(true);
+}
+
+function pauseReplay() {
+  clearInterval(replayTimer);
+  replayTimer = null;
+  setReplayControlsState(false);
+}
+
+// "Just show me the final state" escape hatch — skips straight to everything
+// loaded at once, same as live mode's instant behavior.
+function skipReplayToEnd() {
+  pauseReplay();
+  candleSeries.setData(replayCandles.map(toChartCandle));
+  patterns = replayPatterns;
+  candleSeries.setMarkers(buildSignalMarkers(replaySignals));
+  replayIndex = replayCandles.length;
+  redrawOverlay();
+  updateReplayProgress();
+}
+
+function setReplayControlsState(playing) {
+  const playBtn = document.getElementById('replay-play-btn');
+  if (playBtn) playBtn.textContent = playing ? '⏸ Pause' : '▶ Play';
+}
+
+function updateReplayProgress() {
+  const label = document.getElementById('replay-progress');
+  if (label) label.textContent = `${replayIndex}/${replayCandles.length}`;
+}
+
+// --- orchestration ------------------------------------------------------
+
 async function refreshAll() {
-  await loadCandles();
-  await loadPatterns();
-  await loadSignals();
+  pauseReplay();
+
   if (historicalRange) {
+    document.getElementById('replay-controls').style.display = 'flex';
     await unsubscribeLive();
+    await loadHistoricalReplayData();
+    startReplay();
   } else {
+    document.getElementById('replay-controls').style.display = 'none';
+    await loadLiveCandles();
+    await loadLivePatterns();
+    await loadLiveSignals();
     await subscribeLive();
   }
+
   resizeOverlay();
 }
+
+// --- replay controls (play/pause, speed, skip-to-end) ------------------------
+
+document.getElementById('replay-play-btn').addEventListener('click', () => {
+  if (replayTimer) {
+    pauseReplay();
+  } else if (replayIndex < replayCandles.length) {
+    startReplay();
+  }
+});
+
+document.getElementById('replay-speed').addEventListener('change', e => {
+  replaySpeedMs = Number(e.target.value);
+  if (replayTimer) startReplay(); // restart interval at the new speed
+});
+
+document.getElementById('replay-skip-btn').addEventListener('click', skipReplayToEnd);
 
 // --- date range picker (live vs. historical mode) ---------------------------
 

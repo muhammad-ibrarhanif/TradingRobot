@@ -30,6 +30,18 @@
     </button>
   </header>
 
+  <div class="replay-controls" id="replay-controls" style="display: none;">
+    <span class="replay-label">Replay:</span>
+    <button type="button" id="replay-play-btn">⏸ Pause</button>
+    <select id="replay-speed" title="Candles per tick">
+      <option value="400">Slow</option>
+      <option value="150" selected>Normal</option>
+      <option value="40">Fast</option>
+    </select>
+    <button type="button" id="replay-skip-btn">Skip to end</button>
+    <span id="replay-progress" class="replay-progress">0/0</span>
+  </div>
+
   <div class="chart-row">
     <div class="tools-bar" id="tools-bar">
       <button type="button" class="tool-btn active" data-tool="cursor" title="Cursor">↖</button>

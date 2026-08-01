@@ -31,4 +31,23 @@ public sealed class SmaCrossStrategy(int fastPeriod = 10, int slowPeriod = 30) :
 
         return null;
     }
+
+    // Separate from OnCandle's crossover-only signal: this reports the fast-vs-slow
+    // SMA relationship *right now*, regardless of whether a crossover just happened.
+    // Used by ConfirmedStrategy to ask "does the indicator currently agree with this
+    // pattern's direction" — requiring an actual crossover on the same candle as a
+    // pattern would almost never line up, since the two fire at very different
+    // frequencies. Static + parameterized so it stays usable without an instance.
+    public static OrderSide? CurrentBias(IReadOnlyList<Candle> history, int fastPeriod = 10, int slowPeriod = 30)
+    {
+        if (history.Count < slowPeriod) return null;
+
+        var closes = history.Select(c => c.Close).ToList();
+        var fast = closes.TakeLast(fastPeriod).Average();
+        var slow = closes.TakeLast(slowPeriod).Average();
+
+        if (fast > slow) return OrderSide.Buy;
+        if (fast < slow) return OrderSide.Sell;
+        return null;
+    }
 }

@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\TradingRobot.Domain\TradingRobot.Domain.csproj" />
+    <ProjectReference Include="..\TradingRobot.PatternDetection\TradingRobot.PatternDetection.csproj" />
   </ItemGroup>
 </Project>
