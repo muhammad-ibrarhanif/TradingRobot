@@ -14,10 +14,11 @@ builder.AddRedisClient(connectionName: "redis"); // caches historical candles be
 // this is how the tester runs and compares many strategies simultaneously.
 // Same three signal sources as SignalGenerator.Worker/Dashboard.Web — see
 // Dashboard-Frontend-Requirements.md "Signal generation — patterns vs indicators
-// vs combined": price action alone, an indicator alone, both agreeing together.
+// vs combined." Indicators paused for now (price action first), so only
+// PatternBasedStrategy runs; the other two stay commented, not deleted.
 builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.PatternBasedStrategy());
-builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
-builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.ConfirmedStrategy());
+// builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
+// builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.ConfirmedStrategy());
 
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 

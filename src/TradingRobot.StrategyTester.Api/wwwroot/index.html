@@ -13,6 +13,8 @@
   #stats { padding: 10px 20px; font-size: 13px; border-collapse: collapse; }
   #stats th, #stats td { padding: 4px 16px 4px 0; text-align: left; }
   #stats th { color: #8b949e; font-weight: normal; }
+  #strategy-picker { display: flex; gap: 12px; align-items: center; font-size: 13px; color: #c9d1d9; }
+  #strategy-picker label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -21,6 +23,11 @@
   <input id="interval" value="1h" />
   <input id="from" type="date" value="2025-01-01" />
   <input id="to" type="date" value="2025-06-01" />
+  <!-- Pick one strategy to test on its own, or several to compare side by side —
+       independent of whichever strategies happen to be enabled for live signal
+       generation elsewhere. Populated from GET /api/strategies, not hardcoded, so
+       adding a new IStrategy to Program.cs shows up here automatically. -->
+  <span id="strategy-picker"></span>
   <button onclick="runBacktest()">Run Backtest</button>
 </header>
 <table id="stats"></table>
@@ -37,14 +44,38 @@ const candleSeries = chart.addCandlestickSeries();
 // against the same history stay visually distinguishable on the chart.
 const strategyColors = ['#3fb950', '#f85149', '#58a6ff', '#d29922', '#bc8cff'];
 
+// Populate the strategy checkboxes from whatever's actually registered in this
+// service, rather than hardcoding names here — stays correct as strategies are
+// added/removed in Program.cs. All start checked (same as the old "always run
+// everything" behavior) so nothing changes for anyone who doesn't touch this.
+async function loadStrategyPicker() {
+  const res = await fetch('/api/strategies');
+  const names = await res.json();
+  const picker = document.getElementById('strategy-picker');
+  picker.innerHTML = names.map(name => `
+    <label><input type="checkbox" value="${name}" checked /> ${name}</label>
+  `).join('');
+}
+
+function selectedStrategyNames() {
+  return Array.from(document.querySelectorAll('#strategy-picker input:checked')).map(cb => cb.value);
+}
+
 async function runBacktest() {
   const symbol = document.getElementById('symbol').value;
   const interval = document.getElementById('interval').value;
-  const from = new Date(document.getElementById('from').value).toISOString();
-  const to = new Date(document.getElementById('to').value).toISOString();
+  const from = document.getElementById('from').value;
+  const to = document.getElementById('to').value;
 
-  const res = await fetch(`/api/backtest?symbol=${symbol}&interval=${interval}&from=${from}&to=${to}`);
-  const results = await res.json(); // one BacktestResult per registered strategy
+  const selected = selectedStrategyNames();
+  if (selected.length === 0) {
+    alert('Pick at least one strategy to test.');
+    return;
+  }
+  const strategiesParam = encodeURIComponent(selected.join(','));
+
+  const res = await fetch(`/api/backtest?symbol=${symbol}&interval=${interval}&from=${from}&to=${to}&strategies=${strategiesParam}`);
+  const results = await res.json(); // one BacktestResult per selected strategy
 
   if (!results.length) return;
 
@@ -77,6 +108,8 @@ async function runBacktest() {
       </tr>`).join('')}
   `;
 }
+
+loadStrategyPicker();
 </script>
 </body>
 </html>

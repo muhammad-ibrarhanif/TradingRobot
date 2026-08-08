@@ -289,11 +289,22 @@ function drawPatterns() {
 
     const left = Math.min(x1, x2) - 8;
     const width = Math.abs(x2 - x1) + 16;
-    overlayCtx.fillStyle = 'rgba(188, 140, 255, 0.15)';
+
+    // Was 0.15 alpha with no border — technically always drawn (patterns are
+    // an always-on layer regardless of which strategy fired a signal), but
+    // that faint a tint on the dark background was easy to miss entirely,
+    // which read as "the highlight isn't showing." Bumped to a visible fill
+    // plus a solid border so a pattern band is unmistakable next to a signal
+    // arrow, not just technically present.
+    overlayCtx.fillStyle = 'rgba(188, 140, 255, 0.28)';
     overlayCtx.fillRect(left, 0, width, overlay.height);
+    overlayCtx.strokeStyle = 'rgba(188, 140, 255, 0.8)';
+    overlayCtx.lineWidth = 1;
+    overlayCtx.strokeRect(left, 0, width, overlay.height);
+
     overlayCtx.fillStyle = '#bc8cff';
-    overlayCtx.font = '10px sans-serif';
-    overlayCtx.fillText(p.name, left, 12);
+    overlayCtx.font = 'bold 11px sans-serif';
+    overlayCtx.fillText(p.name, left, 14);
   }
 }
 

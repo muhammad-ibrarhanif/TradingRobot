@@ -25,17 +25,17 @@ builder.Services.AddSingleton<INotifier, EmailNotifier>();
 // via IEnumerable<IStrategy> and evaluates each independently, so adding a new
 // strategy is just adding another line here, not touching the worker.
 //
-// Three independent signal sources per Dashboard-Frontend-Requirements.md "Signal
+// Three signal sources exist per Dashboard-Frontend-Requirements.md "Signal
 // generation — patterns vs indicators vs combined": price action alone
-// (PatternBasedStrategy), an indicator alone (SmaCrossStrategy), and both agreeing
-// together (ConfirmedStrategy). All three run at once; the dashboard already
-// colors/labels signals per StrategyName so you can tell which source produced
-// which marker. Chart highlighting for patterns is a separate, always-on layer
-// (MarketDataApiController.GetPatterns) — it doesn't depend on which of these are
-// registered.
+// (PatternBasedStrategy), an indicator alone (SmaCrossStrategy), and both
+// agreeing together (ConfirmedStrategy). Indicators are explicitly paused for now
+// — decision was to get price action right first, indicators come back later —
+// so only PatternBasedStrategy is registered below. SmaCrossStrategy/
+// ConfirmedStrategy stay in the codebase, just commented out here, so turning
+// them back on later is a one-line change, not rebuilding anything.
 builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.PatternBasedStrategy());
-builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
-builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.ConfirmedStrategy());
+// builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.SmaCrossStrategy());
+// builder.Services.AddSingleton<IStrategy>(new TradingRobot.Strategies.ConfirmedStrategy());
 
 builder.Services.AddHostedService<SignalWorker>();
 
