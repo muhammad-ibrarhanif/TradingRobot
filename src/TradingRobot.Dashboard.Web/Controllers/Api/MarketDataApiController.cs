@@ -58,12 +58,24 @@ public sealed class MarketDataApiController(
         var candles = await marketData.GetHistoricalCandlesAsync(symbol, interval, rangeFrom, rangeTo, ct);
         var matches = patternDetector.Detect(candles);
 
-        var result = matches.Select(m => new
+        // High/Low across every candle the pattern spans, added so the chart can
+        // draw a box tightly around the pattern's actual price range instead of a
+        // full-height translucent column — the full-height version technically
+        // highlighted every pattern already, but read as a faint background smear
+        // rather than "this candle is highlighted," which is why it kept going
+        // unnoticed. See dashboard.js drawPatterns.
+        var result = matches.Select(m =>
         {
-            m.Name,
-            m.Description,
-            StartTime = candles[m.StartIndex].OpenTime,
-            EndTime = candles[m.EndIndex].OpenTime,
+            var span = candles.Skip(m.StartIndex).Take(m.EndIndex - m.StartIndex + 1).ToList();
+            return new
+            {
+                m.Name,
+                m.Description,
+                StartTime = candles[m.StartIndex].OpenTime,
+                EndTime = candles[m.EndIndex].OpenTime,
+                High = span.Max(c => c.High),
+                Low = span.Min(c => c.Low),
+            };
         });
 
         return Ok(result);

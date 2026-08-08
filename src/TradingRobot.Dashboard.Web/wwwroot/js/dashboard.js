@@ -280,32 +280,70 @@ function redrawOverlay() {
   drawUserShapes();
 }
 
+// Diagnostic version — a prior "no boxes ever appear" report couldn't be root-
+// caused from a static code read alone (confirmed server data is correct: the
+// API returns proper name/startTime/endTime/high/low). Rather than guess a
+// third silent fix, every skip/failure path now logs *why*, and canvas size is
+// checked explicitly, since a 0x0 overlay canvas (e.g. read before layout) would
+// silently no-op every draw call with zero errors and zero visible symptoms
+// other than "nothing appears" — exactly what was reported. Remove this logging
+// once the real cause is confirmed.
 function drawPatterns() {
-  const ts = chart.timeScale();
-  for (const p of patterns) {
-    const x1 = ts.timeToCoordinate(Math.floor(new Date(p.startTime).getTime() / 1000));
-    const x2 = ts.timeToCoordinate(Math.floor(new Date(p.endTime).getTime() / 1000));
-    if (x1 === null || x2 === null) continue;
-
-    const left = Math.min(x1, x2) - 8;
-    const width = Math.abs(x2 - x1) + 16;
-
-    // Was 0.15 alpha with no border — technically always drawn (patterns are
-    // an always-on layer regardless of which strategy fired a signal), but
-    // that faint a tint on the dark background was easy to miss entirely,
-    // which read as "the highlight isn't showing." Bumped to a visible fill
-    // plus a solid border so a pattern band is unmistakable next to a signal
-    // arrow, not just technically present.
-    overlayCtx.fillStyle = 'rgba(188, 140, 255, 0.28)';
-    overlayCtx.fillRect(left, 0, width, overlay.height);
-    overlayCtx.strokeStyle = 'rgba(188, 140, 255, 0.8)';
-    overlayCtx.lineWidth = 1;
-    overlayCtx.strokeRect(left, 0, width, overlay.height);
-
-    overlayCtx.fillStyle = '#bc8cff';
-    overlayCtx.font = 'bold 11px sans-serif';
-    overlayCtx.fillText(p.name, left, 14);
+  if (overlay.width === 0 || overlay.height === 0) {
+    console.warn('[drawPatterns] overlay canvas has zero size — nothing can render.', { width: overlay.width, height: overlay.height });
+    return;
   }
+
+  const ts = chart.timeScale();
+  let drawn = 0;
+
+  for (const p of patterns) {
+    try {
+      const startSec = Math.floor(new Date(p.startTime).getTime() / 1000);
+      const endSec = Math.floor(new Date(p.endTime).getTime() / 1000);
+      const x1 = ts.timeToCoordinate(startSec);
+      const x2 = ts.timeToCoordinate(endSec);
+      if (x1 === null || x2 === null) {
+        console.warn('[drawPatterns] skipped — timeToCoordinate returned null', { pattern: p.name, startSec, endSec, x1, x2 });
+        continue;
+      }
+
+      const left = Math.min(x1, x2) - 8;
+      const width = Math.abs(x2 - x1) + 16;
+
+      // Was a full-height column (top=0 to overlay.height) — technically drawn
+      // for every pattern regardless of strategy, per the "always highlight
+      // patterns" requirement, but a faint vertical band spanning the *entire
+      // chart* reads as background noise, not "this candle is highlighted."
+      // Boxing just the candle's own high/low (with small padding) instead makes
+      // it read the way a real pattern-recognition overlay should: a box drawn
+      // right around the specific bar(s), like TradingView's own indicators do.
+      const yHigh = candleSeries.priceToCoordinate(p.high);
+      const yLow = candleSeries.priceToCoordinate(p.low);
+      if (yHigh === null || yLow === null) {
+        console.warn('[drawPatterns] skipped — priceToCoordinate returned null', { pattern: p.name, high: p.high, low: p.low, yHigh, yLow });
+        continue;
+      }
+
+      const top = yHigh - 10;
+      const height = (yLow - yHigh) + 20;
+
+      overlayCtx.fillStyle = 'rgba(188, 140, 255, 0.3)';
+      overlayCtx.fillRect(left, top, width, height);
+      overlayCtx.strokeStyle = '#bc8cff';
+      overlayCtx.lineWidth = 1.5;
+      overlayCtx.strokeRect(left, top, width, height);
+
+      overlayCtx.fillStyle = '#bc8cff';
+      overlayCtx.font = 'bold 11px sans-serif';
+      overlayCtx.fillText(p.name, left, top - 4);
+      drawn++;
+    } catch (err) {
+      console.error('[drawPatterns] threw while drawing a pattern', { pattern: p, err });
+    }
+  }
+
+  console.log(`[drawPatterns] considered ${patterns.length} pattern(s), drew ${drawn}, canvas ${overlay.width}x${overlay.height}`);
 }
 
 // --- drawing tools (trendline / horizontal level) ---------------------------

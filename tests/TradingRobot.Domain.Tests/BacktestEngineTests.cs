@@ -1,6 +1,6 @@
 using TradingRobot.Domain.Models;
+using TradingRobot.Strategies;
 using TradingRobot.StrategyTester.Api.Backtesting;
-using TradingRobot.StrategyTester.Api.Strategies;
 using Xunit;
 
 namespace TradingRobot.Domain.Tests;
